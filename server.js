@@ -209,6 +209,18 @@ io.on('connection', socket => {
     });
   });
 
+
+  // ── Screen-share signaling ───────────────────────────────────────────────
+socket.on('screen-share-started', (roomId) => {
+  console.log(`🔊 Screen share started by ${socket.id} in room ${roomId}`);
+  socket.to(roomId).emit('screen-share-started');
+});
+socket.on('screen-share-stopped', (roomId) => {
+  console.log(`🔊 Screen share stopped by ${socket.id} in room ${roomId}`);
+  socket.to(roomId).emit('screen-share-stopped');
+});
+
+
   // Handle meeting end
   socket.on('end-meeting', ({ roomId, endedBy }) => {
     console.log(`\n🔚 MEETING ENDED by ${endedBy} in room ${roomId}`);

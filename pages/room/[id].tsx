@@ -23,6 +23,7 @@ export default function RoomPage() {
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
   const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
+  const screenStreamRef = useRef<MediaStream | null>(null);
 
   // ICE-candidate queue until remoteDescription is set
   const queuedIceRef = useRef<RTCIceCandidateInit[]>([]);
@@ -57,6 +58,8 @@ export default function RoomPage() {
   const [mediaLoading, setMediaLoading] = useState(true);
   const [showEndDialog, setShowEndDialog] = useState(false);
   const [endDialogMessage, setEndDialogMessage] = useState('');
+  const [screenSharingActive, setScreenSharingActive] = useState(false);
+  const [isSharingLocal, setIsSharingLocal] = useState(false);
   const [countdown, setCountdown] = useState(0);
   const [roomError, setRoomError] = useState<string | null>(null);
 
@@ -681,6 +684,8 @@ export default function RoomPage() {
     socket.on('ice-candidate', handleIceCandidate);
     socket.on('host-left', handleHostLeft);
     socket.on('peer-left', handlePeerLeft);
+    socket.on('screen-share-started', () => setScreenSharingActive(true));
+    socket.on('screen-share-stopped', () => setScreenSharingActive(false));
     socket.on('meeting-ended', handleMeetingEnded);
     socket.on('room-full', handleRoomFull);
     socket.on('invalid-room', handleInvalidRoom);
@@ -709,6 +714,8 @@ export default function RoomPage() {
       socket.off('ice-candidate', handleIceCandidate);
       socket.off('host-left', handleHostLeft);
       socket.off('peer-left', handlePeerLeft);
+      socket.off('screen-share-started');
+      socket.off('screen-share-stopped');
       socket.off('meeting-ended', handleMeetingEnded);
       socket.off('room-full', handleRoomFull);
       socket.off('invalid-room', handleInvalidRoom);
@@ -772,6 +779,7 @@ export default function RoomPage() {
   }, []);
 
   // ── Screen share (video + system audio) ───────────────────────────────────
+// ── start screen share ─────────────────────────────────────────────────────
 const shareScreen = useCallback(async () => {
   const pc = peerConnectionRef.current;
   if (!pc) return;
@@ -781,20 +789,27 @@ const shareScreen = useCallback(async () => {
       video: true,
       audio: true
     });
+    screenStreamRef.current = screenStream;
 
-    // replace the outgoing video track
+    setScreenSharingActive(true);
+    setIsSharingLocal(true);
+    socket.emit('screen-share-started', roomId);
+
+    // replace outgoing video
     const videoSender = pc.getSenders().find(s => s.track?.kind === 'video');
     if (videoSender) {
       const screenTrack = screenStream.getVideoTracks()[0];
       await videoSender.replaceTrack(screenTrack);
-      // when user stops sharing, revert to camera
       screenTrack.onended = async () => {
+        setScreenSharingActive(false);
+        setIsSharingLocal(false);
+        socket.emit('screen-share-stopped', roomId);
         const camTrack = localStreamRef.current!.getVideoTracks()[0];
         await videoSender.replaceTrack(camTrack);
       };
     }
 
-    // if system‐audio is present, replace outgoing audio
+    // replace outgoing audio, if any
     const sysAudio = screenStream.getAudioTracks()[0];
     if (sysAudio) {
       const audioSender = pc.getSenders().find(s => s.track?.kind === 'audio');
@@ -804,7 +819,31 @@ const shareScreen = useCallback(async () => {
     console.error('Screen share error:', err);
     setError('Screen share failed: ' + (err as Error).message);
   }
-}, []);
+}, [roomId]);
+
+// ── stop screen share ──────────────────────────────────────────────────────
+const stopScreenShare = useCallback(async () => {
+  const pc = peerConnectionRef.current;
+  const screenStream = screenStreamRef.current;
+  if (!pc || !screenStream) return;
+
+  // stop all screen tracks
+  screenStream.getTracks().forEach(t => t.stop());
+  screenStreamRef.current = null;
+
+  // revert video back to camera
+  const videoSender = pc.getSenders().find(s => s.track?.kind === 'video');
+  if (videoSender && localStreamRef.current) {
+    const camTrack = localStreamRef.current.getVideoTracks()[0];
+    await videoSender.replaceTrack(camTrack);
+  }
+
+  // update state & notify peer
+  setScreenSharingActive(false);
+  setIsSharingLocal(false);
+  socket.emit('screen-share-stopped', roomId);
+}, [roomId]);
+
 
 
   // ── End call ────────────────────────────────────────────────────────────────
@@ -906,9 +945,10 @@ const shareScreen = useCallback(async () => {
           <button onClick={toggleVideo} style={{ backgroundColor: videoEnabled ? '#28a745' : '#dc3545', color: 'white', padding: '8px 16px', border: 'none', borderRadius: 4 }}>
             {videoEnabled ? 'Video Off' : 'Video On'}
           </button>
-          <button onClick={shareScreen} style={{ backgroundColor: '#007bff', color: 'white', padding: '8px 16px', border: 'none', borderRadius: 4, cursor: 'pointer' }} >
-          Share Screen
-          </button>
+          <button onClick={isSharingLocal ? stopScreenShare : shareScreen} disabled={screenSharingActive && !isSharingLocal} title={ screenSharingActive && !isSharingLocal ? 'Only one person can screen share at a time' : isSharingLocal ? 'Stop sharing' : 'Share Screen' } style={{backgroundColor: '#007bff', color: 'white', padding: '8px 16px', border: 'none', borderRadius: 4, cursor: screenSharingActive && !isSharingLocal ? 'not-allowed' : 'pointer', }} >
+  {isSharingLocal ? 'Stop Sharing' : 'Share Screen'}
+</button>
+
         </div>
         <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap' }}>
           <div>
