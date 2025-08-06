@@ -771,6 +771,42 @@ export default function RoomPage() {
     }
   }, []);
 
+  // ── Screen share (video + system audio) ───────────────────────────────────
+const shareScreen = useCallback(async () => {
+  const pc = peerConnectionRef.current;
+  if (!pc) return;
+  try {
+    // ask for display + system audio
+    const screenStream = await navigator.mediaDevices.getDisplayMedia({
+      video: true,
+      audio: true
+    });
+
+    // replace the outgoing video track
+    const videoSender = pc.getSenders().find(s => s.track?.kind === 'video');
+    if (videoSender) {
+      const screenTrack = screenStream.getVideoTracks()[0];
+      await videoSender.replaceTrack(screenTrack);
+      // when user stops sharing, revert to camera
+      screenTrack.onended = async () => {
+        const camTrack = localStreamRef.current!.getVideoTracks()[0];
+        await videoSender.replaceTrack(camTrack);
+      };
+    }
+
+    // if system‐audio is present, replace outgoing audio
+    const sysAudio = screenStream.getAudioTracks()[0];
+    if (sysAudio) {
+      const audioSender = pc.getSenders().find(s => s.track?.kind === 'audio');
+      if (audioSender) await audioSender.replaceTrack(sysAudio);
+    }
+  } catch (err) {
+    console.error('Screen share error:', err);
+    setError('Screen share failed: ' + (err as Error).message);
+  }
+}, []);
+
+
   // ── End call ────────────────────────────────────────────────────────────────
   const handleEndCall = useCallback(() => {
     if (roomId && userName) {
@@ -869,6 +905,9 @@ export default function RoomPage() {
           </button>
           <button onClick={toggleVideo} style={{ backgroundColor: videoEnabled ? '#28a745' : '#dc3545', color: 'white', padding: '8px 16px', border: 'none', borderRadius: 4 }}>
             {videoEnabled ? 'Video Off' : 'Video On'}
+          </button>
+          <button onClick={shareScreen} style={{ backgroundColor: '#007bff', color: 'white', padding: '8px 16px', border: 'none', borderRadius: 4, cursor: 'pointer' }} >
+          Share Screen
           </button>
         </div>
         <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap' }}>
