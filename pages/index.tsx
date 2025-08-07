@@ -18,7 +18,7 @@ export default function Home() {
   };
 
   return (
-    <div className="min-h-screen flex flex-col justify-center items-center bg-gray-900 text-white">
+    <div className="min-h-screen flex flex-col justify-center items-center bg-gray-900 text-white relative">
       <h1 className="text-4xl font-bold mb-8">Welcome to Meetup</h1>
 
       <div className="bg-gray-800 p-6 rounded-lg shadow-lg w-full max-w-md">
@@ -43,6 +43,18 @@ export default function Home() {
         >
           Create New Room
         </button>
+      </div>
+
+      <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 text-gray-400 text-sm">
+        crafted by{' '}
+        <a
+          href="https://linktr.ee/_shounakchandra"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="underline hover:text-blue-400"
+        >
+          Shounak
+        </a>
       </div>
     </div>
   );
