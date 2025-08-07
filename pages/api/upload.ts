@@ -14,6 +14,9 @@ export const config = {
 
 type Data = { url: string } | { error: string };
 
+// In-memory upload tracker: roomId → [fileNames]
+export const roomUploads: Record<string, string[]> = {};
+
 export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse<Data>
@@ -39,11 +42,14 @@ export default async function handler(
   });
 
   // 3) Parse the incoming form
-  form.parse(req, (err, _fields, files) => {
+  form.parse(req, (err, fields, files) => {
     if (err) {
       console.error('Upload error:', err);
       return res.status(500).json({ error: 'File upload failed' });
     }
+
+    // Extract roomId from fields
+    const roomId = typeof fields.roomId === 'string' ? fields.roomId : Array.isArray(fields.roomId) ? fields.roomId[0] : undefined;
 
     // 4) Grab the file. Formidable gives you File | File[]
     const fileField = files.file as FormidableFile | FormidableFile[];
@@ -56,6 +62,12 @@ export default async function handler(
     // 5) Build a public URL under /uploads
     const fileName = path.basename(file.filepath);
     const url = `/uploads/${fileName}`;
+
+    // 6) Track upload by room
+    if (roomId) {
+      roomUploads[roomId] = roomUploads[roomId] || [];
+      roomUploads[roomId].push(fileName);
+    }
 
     return res.status(200).json({ url });
   });

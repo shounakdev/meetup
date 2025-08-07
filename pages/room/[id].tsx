@@ -1,4 +1,4 @@
-// pages/room/[id].tsx - FIXED VERSION
+// pages/room/[id].tsx - COMPLETE FIXED VERSION
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { useRouter } from 'next/router';
 import dynamic from 'next/dynamic';
@@ -21,6 +21,8 @@ export default function RoomPage() {
   // WebRTC refs & state
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
+  const remoteScreenRef = useRef<HTMLVideoElement>(null);
+  const screenVideoRef = useRef<HTMLVideoElement>(null);
   const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
   const screenStreamRef = useRef<MediaStream | null>(null);
@@ -46,7 +48,7 @@ export default function RoomPage() {
   const [audioEnabled, setAudioEnabled] = useState(true);
   const [videoEnabled, setVideoEnabled] = useState(true);
 
-  // Name handling - Fixed initialization
+  // Name handling
   const [userName, setUserName] = useState('');
   const [peerName, setPeerName] = useState('');
   const [roomName, setRoomName] = useState<string>('');
@@ -63,7 +65,6 @@ export default function RoomPage() {
   const [mediaLoading, setMediaLoading] = useState(true);
   const [showEndDialog, setShowEndDialog] = useState(false);
   const [remoteScreenStream, setRemoteScreenStream] = useState<MediaStream | null>(null);
-  const remoteScreenRef = useRef<HTMLVideoElement>(null);
   const [endDialogMessage, setEndDialogMessage] = useState('');
   const [screenSharingActive, setScreenSharingActive] = useState(false);
   const [isSharingLocal, setIsSharingLocal] = useState(false);
@@ -71,6 +72,10 @@ export default function RoomPage() {
   const [roomError, setRoomError] = useState<string | null>(null);
   const [showPhotoOptions, setShowPhotoOptions] = useState(false);
 
+  // Photo menu states
+  const [showPhotoMenu, setShowPhotoMenu] = useState(false);
+  const [showBoothMenu, setShowBoothMenu] = useState(false);
+  const [photoReels, setPhotoReels] = useState<string[]>([]);
 
   const [signalingState, setSignalingState] = useState<RTCSignalingState>('stable');
 
@@ -81,7 +86,125 @@ export default function RoomPage() {
     ] 
   };
 
-  // ── Initialize or return existing RTCPeerConnection ─────────────────────────
+  // Utility to map style names to CSS filter strings
+  const getFilterCSS = useCallback((style: string) => {
+    switch (style) {
+      case 'contrast': return 'contrast(1.5)';
+      case 'vintage':  return 'sepia(1)';
+      case 'hue':      return 'hue-rotate(90deg)';
+      case 'old':      return 'grayscale(0.5) brightness(0.8)';
+      case 'bw':       return 'grayscale(1)';
+      default:         return 'none';
+    }
+  }, []);
+
+  // Normal window photo
+  const handleWindowPhoto = useCallback(async () => {
+  if (!localVideoRef.current) return;
+  const video = localVideoRef.current;
+  const w = video.videoWidth;
+  const h = video.videoHeight;
+  const textHeight = 40;
+
+  const canvas = document.createElement('canvas');
+  canvas.width = w;
+  canvas.height = h + textHeight + 10;
+  const ctx = canvas.getContext('2d')!;
+
+  ctx.drawImage(video, 0, 0, w, h);
+
+  // room name below
+  ctx.font = '24px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillStyle = textColor;
+  ctx.fillText(roomName || `Room: ${roomId}`, w / 2, h + 30);
+
+  canvas.toBlob(blob => {
+    if (!blob) return;
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'window-photo.jpeg';
+    a.click();
+    URL.revokeObjectURL(url);
+  }, 'image/jpeg');
+
+  setShowPhotoMenu(false);
+}, [roomName, roomId, textColor]);
+
+
+  // Photobooth reel with filter
+ const handleBoothPhoto = useCallback(async (style: string) => {
+  // 1) Load your template
+  const template = new Image();
+  template.src = '/reel template.png';
+  await new Promise<void>(res => { template.onload = () => res() });
+  
+  // 2) Grab the two video elements
+  const [topVid, bottomVid] = [ localVideoRef.current, remoteVideoRef.current ].filter(Boolean) as HTMLVideoElement[];
+  if (!topVid || !bottomVid) return;
+  
+  // 3) Create canvas matching the template size
+  const w = template.width;
+  const h = template.height;
+  const canvas = document.createElement('canvas');
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext('2d')!;
+
+  // 4) Draw the template background
+  ctx.drawImage(template, 0, 0, w, h);
+
+  // 5) Compute the box areas (you’ll need to tweak these to match your template exactly)
+  //    These values assume two equal boxes, each half the template-height minus padding.
+  const padding = 20;            // space from edges
+  const boxH  = (h - padding*3 - 40) / 2; // 40px reserved for the caption line at bottom
+  const boxW  = w - padding*2;
+  
+  // 6) Draw top snapshot
+ //tx.filter = getFilterCSS('none'); 
+ const filterCSS = getFilterCSS(style);
+  ctx.filter = filterCSS;
+  ctx.drawImage(topVid,
+    0, 0, topVid.videoWidth, topVid.videoHeight,
+    padding, padding,
+    boxW, boxH
+  );
+
+  // 7) Draw bottom snapshot with the chosen filter
+//ctx.filter = getFilterCSS(style);
+  ctx.drawImage(bottomVid,
+    0, 0, bottomVid.videoWidth, bottomVid.videoHeight,
+    padding, padding*2 + boxH,
+    boxW, boxH
+  );
+  ctx.filter = 'none';
+
+  // 8) Caption your room name on the line area
+  ctx.font = '24px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillStyle = textColor;
+  const captionY = padding*2 + boxH*2 + 20;
+  ctx.fillText(roomName || `Room: ${roomId}`, w/2, captionY);
+
+  // 9) Export & download
+  canvas.toBlob(blob => {
+    if (!blob) return;
+    const url = URL.createObjectURL(blob);
+    const a   = document.createElement('a');
+    a.href    = url;
+    a.download = `booth-${style}.jpeg`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }, 'image/jpeg');
+
+  // 10) Close menus
+  setShowPhotoMenu(false);
+  setShowBoothMenu(false);
+}, [getFilterCSS, roomName, roomId, textColor]);
+
+
+  // Initialize or return existing RTCPeerConnection
   const initPeerConnection = useCallback((): RTCPeerConnection => {
     if (peerConnectionRef.current && peerConnectionRef.current.connectionState !== 'closed') {
       return peerConnectionRef.current;
@@ -90,7 +213,7 @@ export default function RoomPage() {
     const pc = new RTCPeerConnection(iceServers);
     peerConnectionRef.current = pc;
 
-    // FIXED: Add local tracks in a consistent order - video first, then audio
+    // Add local tracks in consistent order - video first, then audio
     if (localStreamRef.current) {
       const videoTracks = localStreamRef.current.getVideoTracks();
       const audioTracks = localStreamRef.current.getAudioTracks();
@@ -116,15 +239,13 @@ export default function RoomPage() {
       console.log('Received remote track:', event.track.kind);
       const [remoteStream] = event.streams;
       
-      // Check if this is screen share (video track with specific constraints or label)
+      // Check if this is screen share
       if (event.track.kind === 'video' && remoteStream.getVideoTracks()[0]?.label?.includes('screen')) {
-        // This is screen share
         if (remoteScreenRef.current) {
           remoteScreenRef.current.srcObject = remoteStream;
         }
         setRemoteScreenStream(remoteStream);
       } else {
-        // This is regular camera feed
         if (remoteVideoRef.current) {
           remoteVideoRef.current.srcObject = remoteStream;
         }
@@ -151,7 +272,6 @@ export default function RoomPage() {
       } else if (state === 'failed') {
         setIsCallActive(false);
         setError('Connection failed - attempting to reconnect...');
-        // Try to restart ICE
         if (pc.restartIce) {
           pc.restartIce();
         }
@@ -173,7 +293,7 @@ export default function RoomPage() {
     return pc;
   }, [roomId]);
 
-  // ── Reset PeerConnection (keep local video) ─────────────────────────────────
+  // Reset PeerConnection
   const resetPeerConnection = useCallback(() => {
     console.log('Resetting peer connection');
     
@@ -190,13 +310,12 @@ export default function RoomPage() {
     setSignalingState('stable');
     setIsCallActive(false);
     
-    // Clear remote video
     if (remoteVideoRef.current) {
       remoteVideoRef.current.srcObject = null;
     }
   }, []);
 
-  // ── Create & send offer (host) ─────────────────────────────────────────────
+  // Create & send offer (host)
   const createOffer = useCallback(async () => {
     if (!roomId || !localStreamRef.current || !isHost) {
       console.log('Cannot create offer: missing requirements');
@@ -204,7 +323,6 @@ export default function RoomPage() {
     }
 
     try {
-      // FIXED: Always create a fresh peer connection for offers
       if (peerConnectionRef.current) {
         peerConnectionRef.current.close();
         peerConnectionRef.current = null;
@@ -241,7 +359,7 @@ export default function RoomPage() {
     }
   }, [roomId, isHost, initPeerConnection]);
 
-  // ── Handle incoming offer and send answer ──────────────────────────────────
+  // Handle incoming offer and send answer
   const createAnswer = useCallback(async (offer: RTCSessionDescriptionInit) => {
     if (!roomId || !localStreamRef.current) {
       console.error('Cannot create answer: missing roomId or localStream');
@@ -255,7 +373,6 @@ export default function RoomPage() {
     }
 
     try {
-      // FIXED: Create fresh peer connection for answers too
       if (peerConnectionRef.current) {
         peerConnectionRef.current.close();
         peerConnectionRef.current = null;
@@ -266,7 +383,6 @@ export default function RoomPage() {
       console.log('Current signaling state:', pc.signalingState);
       console.log('Is making offer:', makingOfferRef.current);
       
-      // Perfect negotiation pattern
       const isOfferer = pc.signalingState === 'have-local-offer';
       const offerCollision = offer.type === 'offer' && (makingOfferRef.current || isOfferer);
       
@@ -284,7 +400,6 @@ export default function RoomPage() {
       console.log('Setting remote description with offer...');
       await pc.setRemoteDescription(offer);
 
-      // Process queued ICE candidates
       const queuedCandidates = [...queuedIceRef.current];
       queuedIceRef.current = [];
       
@@ -309,7 +424,7 @@ export default function RoomPage() {
     }
   }, [roomId, initPeerConnection, isHost]);
 
-  // ── Handle incoming answer ─────────────────────────────────────────────────
+  // Handle incoming answer
   const handleAnswer = useCallback(async (answer: RTCSessionDescriptionInit) => {
     if (!answer || !answer.type || !answer.sdp) {
       console.error('Invalid answer received:', answer);
@@ -334,7 +449,6 @@ export default function RoomPage() {
       console.log('Setting remote description with answer...');
       await pc.setRemoteDescription(answer);
 
-      // Process queued ICE candidates
       const queuedCandidates = [...queuedIceRef.current];
       queuedIceRef.current = [];
       
@@ -354,7 +468,7 @@ export default function RoomPage() {
     }
   }, []);
 
-  // ── Handle ICE candidate ───────────────────────────────────────────────────
+  // Handle ICE candidate
   const handleIceCandidate = useCallback(async (candidate: RTCIceCandidateInit) => {
     if (!candidate) {
       console.error('Invalid ICE candidate received:', candidate);
@@ -378,12 +492,12 @@ export default function RoomPage() {
     }
   }, []);
 
-  const handleBackgroundUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  // Handle background upload
+  const handleBackgroundUpload = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !roomId) return;
 
     try {
-      // Upload the image to get a URL
       const formData = new FormData();
       formData.append('file', file);
       
@@ -394,13 +508,9 @@ export default function RoomPage() {
       const { url, error } = await response.json();
       
       if (url) {
-        // Set local background
         setBackgroundImage(url);
-        
-        // Sync with peer
         socket.emit('background-sync', { roomId, backgroundUrl: url });
         
-        // Auto-adjust text color
         const img = new Image();
         img.src = url;
         img.onload = () => {
@@ -426,9 +536,9 @@ export default function RoomPage() {
     } finally {
       e.target.value = '';
     }
-  };
+  }, [roomId]);
 
-  // ── End meeting dialog with countdown ──────────────────────────────────────
+  // End meeting dialog with countdown
   const showEndMeetingDialog = useCallback((endedByName: string) => {
     setEndDialogMessage(`Meeting has been ended by ${endedByName}`);
     setShowEndDialog(true);
@@ -448,7 +558,7 @@ export default function RoomPage() {
     return () => clearInterval(countdownInterval);
   }, [router]);
 
-  // ── Copy room ID to clipboard ──────────────────────────────────────────────
+  // Copy room ID to clipboard
   const copyRoomId = useCallback(async () => {
     try {
       await navigator.clipboard.writeText(roomId);
@@ -461,28 +571,7 @@ export default function RoomPage() {
     }
   }, [roomId, error]);
 
-  // ── Prompt for user name ────────────────────────────────────────────────────
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const name = (window.prompt('Enter your name') || 'Anonymous').trim();
-      setUserName(name);
-    }
-  }, []);
-
-  // ── Broadcast our name to peer ─────────────────────────────────────────────
-  useEffect(() => {
-    if (userName && roomId) {
-      socket.emit('set-name', { roomId, name: userName });
-      
-      const timeoutId = setTimeout(() => {
-        socket.emit('set-name', { roomId, name: userName });
-      }, 1000);
-      
-      return () => clearTimeout(timeoutId);
-    }
-  }, [userName, roomId]);
-
-  // ── Chat helpers ────────────────────────────────────────────────────────────
+  // Chat helpers
   const appendMessage = useCallback((msg: ChatMsg) => {
     setMessages((prev) => [...prev, msg]);
   }, []);
@@ -541,7 +630,7 @@ export default function RoomPage() {
     }
   }, [roomId, userName, appendMessage]);
 
-  // ── Fetch Giphy GIFs ────────────────────────────────────────────────────────
+  // Fetch Giphy GIFs
   const fetchGiphyGifs = useCallback(async () => {
     try {
       const apiKey = process.env.NEXT_PUBLIC_GIPHY_API_KEY;
@@ -583,12 +672,11 @@ export default function RoomPage() {
     setGifResults([]);
   }, [roomId, userName, appendMessage]);
 
-  // ── When a second peer joins, host sends offer ─────────────────────────────
+  // When peer joins, host sends offer
   const handlePeerJoined = useCallback(() => {
     console.log('Peer joined');
     setPeerJoined(true);
     
-    // Only host should initiate after both peers are ready
     if (isHost && localStreamRef.current) {
       socket.emit('set-name', { roomId, name: userName });
       setTimeout(() => {
@@ -597,7 +685,141 @@ export default function RoomPage() {
     }
   }, [isHost, createOffer, roomId, userName]);
 
-  // ── Get local media first ──────────────────────────────────────────────────
+  // Media control functions
+  const toggleAudio = useCallback(() => {
+    if (localStreamRef.current) {
+      const audioTracks = localStreamRef.current.getAudioTracks();
+      audioTracks.forEach(track => {
+        track.enabled = !track.enabled;
+        console.log('Audio track enabled:', track.enabled);
+      });
+      setAudioEnabled(prev => !prev);
+    }
+  }, []);
+
+  const toggleVideo = useCallback(() => {
+    if (localStreamRef.current) {
+      const videoTracks = localStreamRef.current.getVideoTracks();
+      videoTracks.forEach(track => {
+        track.enabled = !track.enabled;
+        console.log('Video track enabled:', track.enabled);
+      });
+      setVideoEnabled(prev => !prev);
+      
+      if (localVideoRef.current && localStreamRef.current) {
+        const currentTime = localVideoRef.current.currentTime;
+        localVideoRef.current.srcObject = null;
+        setTimeout(() => {
+          if (localVideoRef.current && localStreamRef.current) {
+            localVideoRef.current.srcObject = localStreamRef.current;
+            localVideoRef.current.currentTime = currentTime;
+          }
+        }, 10);
+      }
+    }
+  }, []);
+
+  // Screen share
+  const shareScreen = useCallback(async () => {
+    const pc = peerConnectionRef.current;
+    if (!pc) return;
+    try {
+      const screenStream = await navigator.mediaDevices.getDisplayMedia({
+        video: true,
+        audio: true
+      });
+      screenStreamRef.current = screenStream;
+
+      setScreenSharingActive(true);
+      setIsSharingLocal(true);
+      socket.emit('screen-share-started', roomId);
+
+      const videoSender = pc.getSenders().find(s => s.track?.kind === 'video');
+      if (videoSender) {
+        const screenTrack = screenStream.getVideoTracks()[0];
+        await videoSender.replaceTrack(screenTrack);
+        screenTrack.onended = async () => {
+          setScreenSharingActive(false);
+          setIsSharingLocal(false);
+          socket.emit('screen-share-stopped', roomId);
+          const camTrack = localStreamRef.current!.getVideoTracks()[0];
+          await videoSender.replaceTrack(camTrack);
+        };
+      }
+
+      const sysAudio = screenStream.getAudioTracks()[0];
+      if (sysAudio) {
+        const audioSender = pc.getSenders().find(s => s.track?.kind === 'audio');
+        if (audioSender) await audioSender.replaceTrack(sysAudio);
+      }
+    } catch (err) {
+      console.error('Screen share error:', err);
+      setError('Screen share failed: ' + (err as Error).message);
+    }
+  }, [roomId]);
+
+  // Stop screen share
+  const stopScreenShare = useCallback(async () => {
+    const pc = peerConnectionRef.current;
+    const screenStream = screenStreamRef.current;
+    if (!pc || !screenStream) return;
+
+    screenStream.getTracks().forEach(t => t.stop());
+    screenStreamRef.current = null;
+
+    const videoSender = pc.getSenders().find(s => s.track?.kind === 'video');
+    if (videoSender && localStreamRef.current) {
+      const camTrack = localStreamRef.current.getVideoTracks()[0];
+      await videoSender.replaceTrack(camTrack);
+    }
+
+    setScreenSharingActive(false);
+    setIsSharingLocal(false);
+    socket.emit('screen-share-stopped', roomId);
+  }, [roomId]);
+
+  // End call
+//const handleEndCall = useCallback(() => {
+const handleEndCall = useCallback(async () => {
+    if (roomId && userName) {
+      socket.emit('end-meeting', { roomId, endedBy: userName });
+       await fetch('/api/cleanup', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ roomId }),
+    });
+    }
+    
+    if (localStreamRef.current) {
+      localStreamRef.current.getTracks().forEach(track => track.stop());
+    }
+    
+    resetPeerConnection();
+    router.push('/');
+  }, [roomId, userName, resetPeerConnection, router]);
+
+  // Prompt for user name
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const name = (window.prompt('Enter your name') || 'Anonymous').trim();
+      setUserName(name);
+    }
+  }, []);
+
+  // Broadcast name to peer
+  useEffect(() => {
+    if (userName && roomId) {
+      socket.emit('set-name', { roomId, name: userName });
+      
+      const timeoutId = setTimeout(() => {
+        socket.emit('set-name', { roomId, name: userName });
+      }, 1000);
+      
+      return () => clearTimeout(timeoutId);
+    }
+  }, [userName, roomId]);
+
+  // Get local media first
   useEffect(() => {
     if (!roomId) return;
 
@@ -654,7 +876,7 @@ export default function RoomPage() {
     };
   }, [roomId]);
 
-  // ── Socket event listeners ─────────────────────────────────────────────────
+  // Socket event listeners
   useEffect(() => {
     if (!roomId || mediaLoading || !userName) return;
 
@@ -694,7 +916,6 @@ export default function RoomPage() {
 
     const handlePeerName = ({ name, senderId }: { name: string; senderId: string }) => {
       console.log('Received peer name:', name, 'from:', senderId);
-      // Only set peer name if it's not from ourselves
       if (senderId !== socket.id) {
         setPeerName(name);
       }
@@ -715,7 +936,6 @@ export default function RoomPage() {
       console.log('Received background sync:', backgroundUrl);
       setBackgroundImage(backgroundUrl);
       
-      // Auto-adjust text color for synced background
       if (backgroundUrl) {
         const img = new Image();
         img.src = backgroundUrl;
@@ -766,13 +986,11 @@ export default function RoomPage() {
       setIsHost(hostStatus);
 
       if (hostStatus && !roomName) {
-        // ask host for a room name
         const raw = window.prompt('Enter a name for this room')?.trim();
         const finalName = raw && raw.length
           ? raw
           : `${userName}'s room`;
         setRoomName(finalName);
-        // tell the other peer
         socket.emit('room-name', { roomId, roomName: finalName });
       }
 
@@ -817,125 +1035,12 @@ export default function RoomPage() {
     roomName
   ]);
 
-  // ── Fetch trending GIFs when picker opens ───────────────────────────────────
+  // Fetch trending GIFs when picker opens
   useEffect(() => {
     if (showGifPicker) {
       fetchGiphyGifs();
     }
   }, [showGifPicker, fetchGiphyGifs]);
-
-  // ── Media control functions ────────────────────────────────────────────────
-  const toggleAudio = useCallback(() => {
-    if (localStreamRef.current) {
-      const audioTracks = localStreamRef.current.getAudioTracks();
-      audioTracks.forEach(track => {
-        track.enabled = !track.enabled;
-        console.log('Audio track enabled:', track.enabled);
-      });
-      setAudioEnabled(prev => !prev);
-    }
-  }, []);
-
-  const toggleVideo = useCallback(() => {
-    if (localStreamRef.current) {
-      const videoTracks = localStreamRef.current.getVideoTracks();
-      videoTracks.forEach(track => {
-        track.enabled = !track.enabled;
-        console.log('Video track enabled:', track.enabled);
-      });
-      setVideoEnabled(prev => !prev);
-      
-      if (localVideoRef.current && localStreamRef.current) {
-        const currentTime = localVideoRef.current.currentTime;
-        localVideoRef.current.srcObject = null;
-        setTimeout(() => {
-          if (localVideoRef.current && localStreamRef.current) {
-            localVideoRef.current.srcObject = localStreamRef.current;
-            localVideoRef.current.currentTime = currentTime;
-          }
-        }, 10);
-      }
-    }
-  }, []);
-
-  // ── Screen share (video + system audio) ───────────────────────────────────
-  const shareScreen = useCallback(async () => {
-    const pc = peerConnectionRef.current;
-    if (!pc) return;
-    try {
-      // ask for display + system audio
-      const screenStream = await navigator.mediaDevices.getDisplayMedia({
-        video: true,
-        audio: true
-      });
-      screenStreamRef.current = screenStream;
-
-      setScreenSharingActive(true);
-      setIsSharingLocal(true);
-      socket.emit('screen-share-started', roomId);
-
-      // replace outgoing video
-      const videoSender = pc.getSenders().find(s => s.track?.kind === 'video');
-      if (videoSender) {
-        const screenTrack = screenStream.getVideoTracks()[0];
-        await videoSender.replaceTrack(screenTrack);
-        screenTrack.onended = async () => {
-          setScreenSharingActive(false);
-          setIsSharingLocal(false);
-          socket.emit('screen-share-stopped', roomId);
-          const camTrack = localStreamRef.current!.getVideoTracks()[0];
-          await videoSender.replaceTrack(camTrack);
-        };
-      }
-
-      // replace outgoing audio, if any
-      const sysAudio = screenStream.getAudioTracks()[0];
-      if (sysAudio) {
-        const audioSender = pc.getSenders().find(s => s.track?.kind === 'audio');
-        if (audioSender) await audioSender.replaceTrack(sysAudio);
-      }
-    } catch (err) {
-      console.error('Screen share error:', err);
-      setError('Screen share failed: ' + (err as Error).message);
-    }
-  }, [roomId]);
-
-  // ── stop screen share ──────────────────────────────────────────────────────
-  const stopScreenShare = useCallback(async () => {
-    const pc = peerConnectionRef.current;
-    const screenStream = screenStreamRef.current;
-    if (!pc || !screenStream) return;
-
-    // stop all screen tracks
-    screenStream.getTracks().forEach(t => t.stop());
-    screenStreamRef.current = null;
-
-    // revert video back to camera
-    const videoSender = pc.getSenders().find(s => s.track?.kind === 'video');
-    if (videoSender && localStreamRef.current) {
-      const camTrack = localStreamRef.current.getVideoTracks()[0];
-      await videoSender.replaceTrack(camTrack);
-    }
-
-    // update state & notify peer
-    setScreenSharingActive(false);
-    setIsSharingLocal(false);
-    socket.emit('screen-share-stopped', roomId);
-  }, [roomId]);
-
-  // ── End call ────────────────────────────────────────────────────────────────
-  const handleEndCall = useCallback(() => {
-    if (roomId && userName) {
-      socket.emit('end-meeting', { roomId, endedBy: userName });
-    }
-    
-    if (localStreamRef.current) {
-      localStreamRef.current.getTracks().forEach(track => track.stop());
-    }
-    
-    resetPeerConnection();
-    router.push('/');
-  }, [roomId, userName, resetPeerConnection, router]);
 
   // Show room error (invalid/expired room or room full)
   if (roomError) {
@@ -984,512 +1089,603 @@ export default function RoomPage() {
     );
   }
 
-  // ── Render ─────────────────────────────────────────────────────────────────
+  // Main render
   return (
-    <div
-      style={{
-        display: 'flex',
-        height: '100vh',
-        backgroundImage: backgroundImage ? `url(${backgroundImage})` : undefined,
-        backgroundSize: 'cover',
-        backgroundPosition: 'center',
-        color: textColor,
-      }}
-    >
-      {/* Video + Controls */}
-      <div style={{ flex: 1, padding: 20 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
-          <h1 style={{ margin: 0 }}>{roomName ? roomName : `Room: ${roomId}`}</h1>
-          <button 
-            onClick={copyRoomId}
-            style={{ 
-              backgroundColor: '#17a2b8', 
-              color: 'white', 
-              border: 'none', 
-              padding: '6px 12px',
-              borderRadius: 4,
-              cursor: 'pointer',
-              fontSize: 12,
-              fontWeight: 'bold'
-            }}
-            title="Copy room ID"
-          >
-            📋 Copy ID
-          </button>
-           {/* Photo dropdown wrapper */}
-<div style={{ position: 'relative' }}>
-  <button
-    onClick={() => setShowPhotoOptions(prev => !prev)}
-    style={{
-      backgroundColor: '#007bff',
-      color: 'white',
-      border: 'none',
-      padding: '6px 12px',
-      borderRadius: 4,
-      cursor: 'pointer',
-      fontSize: 12,
-      fontWeight: 'bold'
-    }}
-  >
-    📸 Photo ▾
-  </button>
-
-  {showPhotoOptions && (
-    <div
-      style={{
-        position: 'absolute',
-        top: '100%',
-        right: 0,
-        background: 'white',
-        boxShadow: '0 4px 8px rgba(0,0,0,0.1)',
-        borderRadius: 4,
-        overflow: 'hidden',
-        zIndex: 100
-      }}
-    >
-      <button
-        onClick={() => { /* take photo handler */ }}
-        style={{ display: 'block', padding: '8px 12px', width: '100%', textAlign: 'left', border: 'none', background: 'none' }}
-      >
-        Take Photo
-      </button>
-      <button
-        onClick={() => { /* upload photo handler */ }}
-        style={{ display: 'block', padding: '8px 12px', width: '100%', textAlign: 'left', border: 'none', background: 'none' }}
-      >
-        Upload Photo
-      </button>
-    </div>
-  )}
-</div>
-
-        </div>
+    <>
+      <style jsx>{`
+        .photo-dropdown {
+          position: absolute;
+          top: 100%;
+          right: 0;
+          background: white;
+          border: 1px solid #ddd;
+          border-radius: 4px;
+          box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+          overflow: hidden;
+          z-index: 100;
+          min-width: 120px;
+        }
         
-        <p>
-          Status: {connectionState} {isHost && '(Host)'} {isCallActive && '– Active'}
-          {error && <span style={{ color: 'red' }}> • {error}</span>}
-        </p>
-        <div style={{ marginBottom: 10, gap: 10, display: 'flex' }}>
-          <button onClick={handleEndCall} style={{ backgroundColor: '#dc3545', color: 'white', padding: '8px 16px', border: 'none', borderRadius: 4 }}>
-            End Meeting
-          </button>
-          <button onClick={toggleAudio} style={{ backgroundColor: audioEnabled ? '#28a745' : '#dc3545', color: 'white', padding: '8px 16px', border: 'none', borderRadius: 4 }}>
-            {audioEnabled ? 'Mute' : 'Unmute'}
-          </button>
-          <button onClick={toggleVideo} style={{ backgroundColor: videoEnabled ? '#28a745' : '#dc3545', color: 'white', padding: '8px 16px', border: 'none', borderRadius: 4 }}>
-            {videoEnabled ? 'Video Off' : 'Video On'}
-          </button>
-          <button 
-            onClick={isSharingLocal ? stopScreenShare : shareScreen} 
-            disabled={screenSharingActive && !isSharingLocal} 
-            title={screenSharingActive && !isSharingLocal ? 'Only one person can screen share at a time' : isSharingLocal ? 'Stop sharing' : 'Share Screen'} 
-            style={{
-              backgroundColor: isSharingLocal ? '#dc3545' : '#007bff', 
-              color: 'white', 
-              padding: '8px 16px', 
-              border: 'none', 
-              borderRadius: 4, 
-              cursor: screenSharingActive && !isSharingLocal ? 'not-allowed' : 'pointer'
-            }}
-          >
-            {isSharingLocal ? 'Stop Sharing' : 'Share Screen'}
-          </button>
-          <button
-            onClick={() => setShowSettings(true)}
-            style={{
-              backgroundColor: '#6c757d',
-              color: 'white',
-              padding: '8px 16px',
-              border: 'none',
-              borderRadius: 4,
-              cursor: 'pointer',
-            }}
-          >
-            ⚙️ Settings
-          </button>
-        </div>
-        <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap' }}>
-          <div>
-            <h2>You: {userName}</h2>
-            <video
-              ref={localVideoRef}
-              autoPlay
-              playsInline
-              muted
-              controls={false}
+        .photo-dropdown.nested {
+          top: 0;
+          left: 100%;
+          margin-left: 4px;
+        }
+        
+        .photo-dropdown button {
+          display: block;
+          width: 100%;
+          padding: 8px 12px;
+          border: none;
+          background: none;
+          text-align: left;
+          cursor: pointer;
+          color: black;
+          font-size: 14px;
+        }
+        
+        .photo-dropdown button:hover {
+          background-color: #f8f9fa;
+        }
+        
+        .photo-reel {
+          position: fixed;
+          bottom: 20px;
+          left: 20px;
+          display: flex;
+          gap: 8px;
+          max-width: 500px;
+          flex-wrap: wrap;
+          z-index: 50;
+        }
+        
+        .photo-reel img {
+          border-radius: 4px;
+          box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+          cursor: pointer;
+        }
+        
+        .photo-reel-container {
+          position: relative;
+        }
+      `}</style>
+      
+      <div
+        style={{
+          display: 'flex',
+          height: '100vh',
+          backgroundImage: backgroundImage ? `url(${backgroundImage})` : undefined,
+          backgroundSize: 'cover',
+          backgroundPosition: 'center',
+          color: textColor,
+        }}
+      >
+        {/* Video + Controls */}
+        <div style={{ flex: 1, padding: 20 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+            <h1 style={{ margin: 0 }}>{roomName ? roomName : `Room: ${roomId}`}</h1>
+            <button 
+              onClick={copyRoomId}
               style={{ 
-                width: 400, 
-                height: 300, 
-                background: '#000', 
-                borderRadius: 8,
-                objectFit: 'cover'
+                backgroundColor: '#17a2b8', 
+                color: 'white', 
+                border: 'none', 
+                padding: '6px 12px',
+                borderRadius: 4,
+                cursor: 'pointer',
+                fontSize: 12,
+                fontWeight: 'bold'
               }}
-              onLoadedMetadata={(e) => {
-                console.log('Local video metadata loaded');
-                const video = e.currentTarget;
-                video.play().then(() => {
-                  console.log('Local video started playing');
-                }).catch(error => {
-                  console.error('Error playing local video:', error);
-                });
-              }}
-              onError={(e) => {
-                console.error('Local video error:', e);
-              }}
-              onCanPlay={() => {
-                console.log('Local video can play');
-              }}
-            />
+              title="Copy room ID"
+            >
+              📋 Copy ID
+            </button>
+            
+            {/* Photo dropdown wrapper */}
+            <div style={{ position: 'relative' }}>
+              <button 
+                onClick={() => {
+                  setShowPhotoMenu(p => !p);
+                  setShowBoothMenu(false);
+                }}
+                style={{
+                  backgroundColor: '#007bff',
+                  color: 'white',
+                  border: 'none',
+                  padding: '6px 12px',
+                  borderRadius: 4,
+                  cursor: 'pointer',
+                  fontSize: 12,
+                  fontWeight: 'bold'
+                }}
+              >
+                📸 Photos ▾
+              </button>
+
+              {showPhotoMenu && (
+                <div className="photo-dropdown">
+                  <button onClick={handleWindowPhoto}>Normal Photo</button>
+                  <button onClick={() => setShowBoothMenu(b => !b)}>Photobooth ▶</button>
+                </div>
+              )}
+
+              {showBoothMenu && (
+                <div className="photo-dropdown nested">
+                  {['normal','contrast','vintage','hue','old','bw'].map(style => (
+                    <button key={style} onClick={() => handleBoothPhoto(style)}>
+                      {style.charAt(0).toUpperCase() + style.slice(1)}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
-          <div>
-            <h2>{peerJoined && peerName ? peerName : 'Waiting for peer...'}</h2>
-            {peerJoined ? (
+          
+          <p>
+            Status: {connectionState} {isHost && '(Host)'} {isCallActive && '– Active'}
+            {error && <span style={{ color: 'red' }}> • {error}</span>}
+          </p>
+          
+          <div style={{ marginBottom: 10, gap: 10, display: 'flex' }}>
+            <button onClick={handleEndCall} style={{ backgroundColor: '#dc3545', color: 'white', padding: '8px 16px', border: 'none', borderRadius: 4 }}>
+              End Meeting
+            </button>
+            <button onClick={toggleAudio} style={{ backgroundColor: audioEnabled ? '#28a745' : '#dc3545', color: 'white', padding: '8px 16px', border: 'none', borderRadius: 4 }}>
+              {audioEnabled ? 'Mute' : 'Unmute'}
+            </button>
+            <button onClick={toggleVideo} style={{ backgroundColor: videoEnabled ? '#28a745' : '#dc3545', color: 'white', padding: '8px 16px', border: 'none', borderRadius: 4 }}>
+              {videoEnabled ? 'Video Off' : 'Video On'}
+            </button>
+            <button 
+              onClick={isSharingLocal ? stopScreenShare : shareScreen} 
+              disabled={screenSharingActive && !isSharingLocal} 
+              title={screenSharingActive && !isSharingLocal ? 'Only one person can screen share at a time' : isSharingLocal ? 'Stop sharing' : 'Share Screen'} 
+              style={{
+                backgroundColor: isSharingLocal ? '#dc3545' : '#007bff', 
+                color: 'white', 
+                padding: '8px 16px', 
+                border: 'none', 
+                borderRadius: 4, 
+                cursor: screenSharingActive && !isSharingLocal ? 'not-allowed' : 'pointer'
+              }}
+            >
+              {isSharingLocal ? 'Stop Sharing' : 'Share Screen'}
+            </button>
+            <button
+              onClick={() => setShowSettings(true)}
+              style={{
+                backgroundColor: '#6c757d',
+                color: 'white',
+                padding: '8px 16px',
+                border: 'none',
+                borderRadius: 4,
+                cursor: 'pointer',
+              }}
+            >
+              ⚙️ Settings
+            </button>
+          </div>
+          
+          <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap' }}>
+            <div>
+              <h2>You: {userName}</h2>
               <video
-                ref={remoteVideoRef}
+                ref={localVideoRef}
                 autoPlay
                 playsInline
+                muted
+                controls={false}
                 style={{ 
                   width: 400, 
                   height: 300, 
-                  background: '#000',
+                  background: '#000', 
                   borderRadius: 8,
                   objectFit: 'cover'
                 }}
-                onLoadedMetadata={() => {
-                  // Ensure remote video plays when metadata is loaded
-                  if (remoteVideoRef.current) {
-                    remoteVideoRef.current.play().catch(console.error);
-                  }
+                onLoadedMetadata={(e) => {
+                  console.log('Local video metadata loaded');
+                  const video = e.currentTarget;
+                  video.play().then(() => {
+                    console.log('Local video started playing');
+                  }).catch(error => {
+                    console.error('Error playing local video:', error);
+                  });
+                }}
+                onError={(e) => {
+                  console.error('Local video error:', e);
+                }}
+                onCanPlay={() => {
+                  console.log('Local video can play');
                 }}
               />
-            ) : (
-              <div
-                style={{
-                  width: 400,
-                  height: 300,
-                  background: '#f8f9fa',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  borderRadius: 8,
-                  border: '2px dashed #dee2e6'
+            </div>
+            <div>
+              <h2>{peerJoined && peerName ? peerName : 'Waiting for peer...'}</h2>
+              {peerJoined ? (
+                <video
+                  ref={remoteVideoRef}
+                  autoPlay
+                  playsInline
+                  style={{ 
+                    width: 400, 
+                    height: 300, 
+                    background: '#000',
+                    borderRadius: 8,
+                    objectFit: 'cover'
+                  }}
+                  onLoadedMetadata={() => {
+                    if (remoteVideoRef.current) {
+                      remoteVideoRef.current.play().catch(console.error);
+                    }
+                  }}
+                />
+              ) : (
+                <div
+                  style={{
+                    width: 400,
+                    height: 300,
+                    background: '#f8f9fa',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    borderRadius: 8,
+                    border: '2px dashed #dee2e6'
+                  }}
+                >
+                  Waiting for peer to join…
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Chat Sidebar */}
+        <div style={{ 
+          width: 300, 
+          borderLeft: '1px solid #ccc', 
+          display: 'flex', 
+          flexDirection: 'column',
+          backgroundColor: '#f8f9fa'
+        }}>
+          <div style={{ 
+            flex: 1, 
+            overflowY: 'auto', 
+            padding: 10,
+            backgroundColor: 'white'
+          }}>
+            {messages.map((msg, index) => (
+              <div key={index} style={{ marginBottom: 12 }}>
+                <small style={{ color: '#666' }}>
+                  {msg.sender === socket.id ? userName : peerName || 'Peer'} •{' '}
+                  {new Date(msg.timestamp).toLocaleTimeString()}
+                </small>
+                <div style={{ marginTop: 4 }}>
+                  {msg.type === 'text' && <span>{msg.message}</span>}
+                  {msg.type === 'image' && (
+                    <img 
+                      src={msg.message} 
+                      alt="uploaded content" 
+                      style={{ 
+                        maxWidth: '100%', 
+                        borderRadius: 4,
+                        cursor: 'pointer'
+                      }} 
+                      onClick={() => window.open(msg.message, '_blank')}
+                    />
+                  )}
+                  {msg.type === 'gif' && (
+                    <img 
+                      src={msg.message} 
+                      alt="gif" 
+                      style={{ 
+                        maxWidth: '100%', 
+                        borderRadius: 4,
+                        cursor: 'pointer'
+                      }} 
+                    />
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+          
+          {/* Chat Input */}
+          <div style={{ 
+            padding: 10, 
+            borderTop: '1px solid #ccc', 
+            position: 'relative',
+            backgroundColor: 'white'
+          }}>
+            <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+              <button 
+                onClick={() => setShowEmojiPicker(prev => !prev)}
+                style={{ background: 'none', border: 'none', fontSize: 18, cursor: 'pointer' }}
+                title="Add emoji"
+              >
+                😊
+              </button>
+              <button 
+                onClick={() => setShowGifPicker(prev => !prev)}
+                style={{ background: 'none', border: 'none', fontSize: 14, cursor: 'pointer' }}
+                title="Add GIF"
+              >
+                GIF
+              </button>
+              <label style={{ cursor: 'pointer', fontSize: 18 }} title="Upload image">
+                📷
+                <input 
+                  type="file" 
+                  accept="image/*" 
+                  style={{ display: 'none' }} 
+                  onChange={sendImage} 
+                />
+              </label>
+            </div>
+            
+            <div style={{ display: 'flex', gap: 8 }}>
+              <input
+                value={chatInput}
+                onChange={(e) => setChatInput(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && sendText()}
+                placeholder="Type a message…"
+                style={{ 
+                  flex: 1, 
+                  padding: '8px 12px',
+                  border: '1px solid #ddd',
+                  borderRadius: 4,
+                  outline: 'none'
+                }}
+              />
+              <button 
+                onClick={sendText}
+                style={{ 
+                  backgroundColor: '#007bff', 
+                  color: 'white', 
+                  border: 'none', 
+                  padding: '8px 16px',
+                  borderRadius: 4,
+                  cursor: 'pointer'
                 }}
               >
-                Waiting for peer to join…
+                Send
+              </button>
+            </div>
+
+            {/* Emoji Picker */}
+            {showEmojiPicker && (
+              <div style={{ 
+                position: 'absolute', 
+                bottom: 70, 
+                right: 10, 
+                zIndex: 1000,
+                boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+                borderRadius: 8
+              }}>
+                <EmojiPicker onEmojiClick={onEmojiClick} />
+              </div>
+            )}
+            
+            {/* GIF Picker */}
+            {showGifPicker && (
+              <div style={{
+                position: 'absolute',
+                bottom: 70,
+                right: 10,
+                width: 280,
+                maxHeight: 300,
+                background: '#fff',
+                border: '1px solid #ccc',
+                borderRadius: 8,
+                boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+                overflowY: 'auto',
+                padding: 8,
+                zIndex: 1000,
+              }}>
+                <div style={{ display: 'flex', marginBottom: 8, gap: 4 }}>
+                  <input
+                    value={gifQuery}
+                    onChange={(e) => setGifQuery(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && fetchGiphyGifs()}
+                    placeholder="Search GIFs…"
+                    style={{ 
+                      flex: 1, 
+                      padding: '6px 8px',
+                      border: '1px solid #ddd',
+                      borderRadius: 4,
+                      fontSize: 14
+                    }}
+                  />
+                  <button 
+                    onClick={fetchGiphyGifs}
+                    style={{ 
+                      backgroundColor: '#007bff', 
+                      color: 'white', 
+                      border: 'none', 
+                      padding: '6px 12px',
+                      borderRadius: 4,
+                      fontSize: 14,
+                      cursor: 'pointer'
+                    }}
+                  >
+                    Search
+                  </button>
+                </div>
+                <div style={{ 
+                  display: 'grid', 
+                  gridTemplateColumns: '1fr 1fr', 
+                  gap: 6 
+                }}>
+                  {gifResults.map((url, index) => (
+                    <img
+                      key={index}
+                      src={url}
+                      alt={`GIF ${index + 1}`}
+                      onClick={() => sendGif(url)}
+                      style={{ 
+                        width: '100%', 
+                        cursor: 'pointer', 
+                        borderRadius: 4,
+                        transition: 'transform 0.1s',
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.transform = 'scale(1.05)';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.transform = 'scale(1)';
+                      }}
+                    />
+                  ))}
+                </div>
               </div>
             )}
           </div>
         </div>
-      </div>
 
-      {/* Chat Sidebar */}
-      <div style={{ 
-        width: 300, 
-        borderLeft: '1px solid #ccc', 
-        display: 'flex', 
-        flexDirection: 'column',
-        backgroundColor: '#f8f9fa'
-      }}>
-        <div style={{ 
-          flex: 1, 
-          overflowY: 'auto', 
-          padding: 10,
-          backgroundColor: 'white'
-        }}>
-          {messages.map((msg, index) => (
-            <div key={index} style={{ marginBottom: 12 }}>
-              <small style={{ color: '#666' }}>
-                {msg.sender === socket.id ? userName : peerName || 'Peer'} •{' '}
-                {new Date(msg.timestamp).toLocaleTimeString()}
-              </small>
-              <div style={{ marginTop: 4 }}>
-                {msg.type === 'text' && <span>{msg.message}</span>}
-                {msg.type === 'image' && (
-                  <img 
-                    src={msg.message} 
-                    alt="uploaded content" 
-                    style={{ 
-                      maxWidth: '100%', 
-                      borderRadius: 4,
-                      cursor: 'pointer'
-                    }} 
-                    onClick={() => window.open(msg.message, '_blank')}
-                  />
-                )}
-                {msg.type === 'gif' && (
-                  <img 
-                    src={msg.message} 
-                    alt="gif" 
-                    style={{ 
-                      maxWidth: '100%', 
-                      borderRadius: 4,
-                      cursor: 'pointer'
-                    }} 
-                  />
-                )}
-              </div>
-            </div>
-          ))}
-        </div>
-        
-        {/* Chat Input */}
-        <div style={{ 
-          padding: 10, 
-          borderTop: '1px solid #ccc', 
-          position: 'relative',
-          backgroundColor: 'white'
-        }}>
-          <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
-            <button 
-              onClick={() => setShowEmojiPicker(prev => !prev)}
-              style={{ background: 'none', border: 'none', fontSize: 18, cursor: 'pointer' }}
-              title="Add emoji"
-            >
-              😊
-            </button>
-            <button 
-              onClick={() => setShowGifPicker(prev => !prev)}
-              style={{ background: 'none', border: 'none', fontSize: 14, cursor: 'pointer' }}
-              title="Add GIF"
-            >
-              GIF
-            </button>
-            <label style={{ cursor: 'pointer', fontSize: 18 }} title="Upload image">
-              📷
-              <input 
-                type="file" 
-                accept="image/*" 
-                style={{ display: 'none' }} 
-                onChange={sendImage} 
-              />
-            </label>
-          </div>
-          
-          <div style={{ display: 'flex', gap: 8 }}>
-            <input
-              value={chatInput}
-              onChange={(e) => setChatInput(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && sendText()}
-              placeholder="Type a message…"
-              style={{ 
-                flex: 1, 
-                padding: '8px 12px',
-                border: '1px solid #ddd',
-                borderRadius: 4,
-                outline: 'none'
-              }}
-            />
-            <button 
-              onClick={sendText}
-              style={{ 
-                backgroundColor: '#007bff', 
-                color: 'white', 
-                border: 'none', 
-                padding: '8px 16px',
-                borderRadius: 4,
-                cursor: 'pointer'
+        {/* Settings Modal */}
+        {showSettings && (
+          <div
+            onClick={() => setShowSettings(false)}
+            style={{
+              position: 'fixed',
+              top: 0,
+              left: 0,
+              width: '100%',
+              height: '100%',
+              backgroundColor: 'rgba(0,0,0,0.5)',
+              display: 'flex',
+              justifyContent: 'center',
+              alignItems: 'center',
+              zIndex: 2000,
+            }}
+          >
+            <div
+              onClick={e => e.stopPropagation()}
+              style={{
+                backgroundColor: 'white',
+                padding: 20,
+                borderRadius: 8,
+                boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+                maxWidth: 400,
+                width: '90%',
               }}
             >
-              Send
-            </button>
-          </div>
-
-          {/* Emoji Picker */}
-          {showEmojiPicker && (
-            <div style={{ 
-              position: 'absolute', 
-              bottom: 70, 
-              right: 10, 
-              zIndex: 1000,
-              boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
-              borderRadius: 8
-            }}>
-              <EmojiPicker onEmojiClick={onEmojiClick} />
-            </div>
-          )}
-          
-          {/* GIF Picker */}
-          {showGifPicker && (
-            <div style={{
-              position: 'absolute',
-              bottom: 70,
-              right: 10,
-              width: 280,
-              maxHeight: 300,
-              background: '#fff',
-              border: '1px solid #ccc',
-              borderRadius: 8,
-              boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
-              overflowY: 'auto',
-              padding: 8,
-              zIndex: 1000,
-            }}>
-              <div style={{ display: 'flex', marginBottom: 8, gap: 4 }}>
+              <h2 style={{ margin: '0 0 20px 0', color: 'black' }}>Settings</h2>
+              <div style={{ marginBottom: 15 }}>
+                <label style={{ display: 'block', marginBottom: 8, color: 'black', fontWeight: 'bold' }}>
+                  Upload Background Image:
+                </label>
                 <input
-                  value={gifQuery}
-                  onChange={(e) => setGifQuery(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && fetchGiphyGifs()}
-                  placeholder="Search GIFs…"
+                  type="file"
+                  accept="image/*"
+                  onChange={handleBackgroundUpload}
                   style={{ 
-                    flex: 1, 
-                    padding: '6px 8px',
+                    display: 'block',
+                    width: '100%',
+                    padding: 8,
                     border: '1px solid #ddd',
                     borderRadius: 4,
-                    fontSize: 14
+                    backgroundColor: 'white'
                   }}
                 />
-                <button 
-                  onClick={fetchGiphyGifs}
-                  style={{ 
-                    backgroundColor: '#007bff', 
-                    color: 'white', 
-                    border: 'none', 
-                    padding: '6px 12px',
-                    borderRadius: 4,
-                    fontSize: 14,
-                    cursor: 'pointer'
-                  }}
-                >
-                  Search
-                </button>
+                <small style={{ color: '#666', fontSize: 12, marginTop: 4, display: 'block' }}>
+                  This will sync the background for both participants
+                </small>
               </div>
-              <div style={{ 
-                display: 'grid', 
-                gridTemplateColumns: '1fr 1fr', 
-                gap: 6 
-              }}>
-                {gifResults.map((url, index) => (
-                  <img
-                    key={index}
-                    src={url}
-                    alt={`GIF ${index + 1}`}
-                    onClick={() => sendGif(url)}
-                    style={{ 
-                      width: '100%', 
-                      cursor: 'pointer', 
-                      borderRadius: 4,
-                      transition: 'transform 0.1s',
-                    }}
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.transform = 'scale(1.05)';
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.transform = 'scale(1)';
-                    }}
-                  />
-                ))}
-              </div>
+              <button
+                onClick={() => setShowSettings(false)}
+                style={{
+                  backgroundColor: '#007bff',
+                  color: 'white',
+                  border: 'none',
+                  padding: '8px 16px',
+                  borderRadius: 4,
+                  cursor: 'pointer',
+                  float: 'right'
+                }}
+              >
+                Close
+              </button>
             </div>
-          )}
-        </div>
-      </div>
+          </div>
+        )}
 
-      {/* Settings Modal */}
-      {showSettings && (
-        <div
-          onClick={() => setShowSettings(false)}
-          style={{
+        {/* End Meeting Dialog */}
+        {showEndDialog && (
+          <div style={{
             position: 'fixed',
             top: 0,
             left: 0,
             width: '100%',
             height: '100%',
-            backgroundColor: 'rgba(0,0,0,0.5)',
+            backgroundColor: 'rgba(0,0,0,0.8)',
             display: 'flex',
             justifyContent: 'center',
             alignItems: 'center',
-            zIndex: 2000,
-          }}
-        >
-          <div
-            onClick={e => e.stopPropagation()}
-            style={{
-              backgroundColor: 'white',
-              padding: 20,
-              borderRadius: 8,
-              boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
-              maxWidth: 400,
-              width: '90%',
-            }}
-          >
-            <h2 style={{ margin: '0 0 20px 0', color: 'black' }}>Settings</h2>
-            <div style={{ marginBottom: 15 }}>
-              <label style={{ display: 'block', marginBottom: 8, color: 'black', fontWeight: 'bold' }}>
-                Upload Background Image:
-              </label>
-              <input
-                type="file"
-                accept="image/*"
-                onChange={handleBackgroundUpload}
-                style={{ 
-                  display: 'block',
-                  width: '100%',
-                  padding: 8,
-                  border: '1px solid #ddd',
-                  borderRadius: 4,
-                  backgroundColor: 'white'
-                }}
-              />
-              <small style={{ color: '#666', fontSize: 12, marginTop: 4, display: 'block' }}>
-                This will sync the background for both participants
-              </small>
-            </div>
-            <button
-              onClick={() => setShowSettings(false)}
-              style={{
-                backgroundColor: '#007bff',
-                color: 'white',
-                border: 'none',
-                padding: '8px 16px',
-                borderRadius: 4,
-                cursor: 'pointer',
-                float: 'right'
-              }}
-            >
-              Close
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* End Meeting Dialog */}
-      {showEndDialog && (
-        <div style={{
-          position: 'fixed',
-          top: 0,
-          left: 0,
-          width: '100%',
-          height: '100%',
-          backgroundColor: 'rgba(0,0,0,0.8)',
-          display: 'flex',
-          justifyContent: 'center',
-          alignItems: 'center',
-          zIndex: 2000
-        }}>
-          <div style={{
-            backgroundColor: 'white',
-            padding: 40,
-            borderRadius: 10,
-            textAlign: 'center',
-            boxShadow: '0 4px 20px rgba(0,0,0,0.3)',
-            maxWidth: 400
+            zIndex: 2000
           }}>
-            <div style={{ fontSize: 48, marginBottom: 20 }}>👋</div>
-            <h2 style={{ marginBottom: 20, color: '#333' }}>Meeting Ended</h2>
-            <p style={{ marginBottom: 20, fontSize: 16, lineHeight: 1.5 }}>
-              {endDialogMessage}
-            </p>
-            <p style={{ 
-              color: '#007bff', 
-              fontSize: 18, 
-              fontWeight: 'bold',
-              marginBottom: 0 
+            <div style={{
+              backgroundColor: 'white',
+              padding: 40,
+              borderRadius: 10,
+              textAlign: 'center',
+              boxShadow: '0 4px 20px rgba(0,0,0,0.3)',
+              maxWidth: 400
             }}>
-              Returning to home page in {countdown} seconds...
-            </p>
+              <div style={{ fontSize: 48, marginBottom: 20 }}>👋</div>
+              <h2 style={{ marginBottom: 20, color: '#333' }}>Meeting Ended</h2>
+              <p style={{ marginBottom: 20, fontSize: 16, lineHeight: 1.5 }}>
+                {endDialogMessage}
+              </p>
+              <p style={{ 
+                color: '#007bff', 
+                fontSize: 18, 
+                fontWeight: 'bold',
+                marginBottom: 0 
+              }}>
+                Returning to home page in {countdown} seconds...
+              </p>
+            </div>
           </div>
-        </div>
-      )}
-    </div>
+        )}
+
+        {/* Photo Reel Display */}
+        {photoReels.length > 0 && (
+          <div className="photo-reel">
+            <div className="photo-reel-container">
+              {photoReels.map((src, idx) => (
+                <img 
+                  key={idx} 
+                  src={src} 
+                  alt={`Photo ${idx + 1}`}
+                  style={{ width: 120, height: 90, objectFit: 'cover', marginRight: 8 }}
+                  onClick={() => window.open(src, '_blank')}
+                />
+              ))}
+              <button
+                onClick={() => setPhotoReels([])}
+                style={{
+                  position: 'absolute',
+                  top: -8,
+                  right: -8,
+                  background: '#dc3545',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '50%',
+                  width: 24,
+                  height: 24,
+                  cursor: 'pointer',
+                  fontSize: 12,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center'
+                }}
+              >
+                ✕
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    </>
   );
 }
