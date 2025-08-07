@@ -502,7 +502,10 @@ export default function RoomPage() {
       formData.append('file', file);
       
       const response = await fetch('/api/upload', { 
-        method: 'POST', 
+        method: 'POST',
+        headers: {
+    'X-Room-ID': roomId, // Add room ID to headers
+  }, 
         body: formData 
       });
       const { url, error } = await response.json();
@@ -602,6 +605,7 @@ export default function RoomPage() {
     
     const formData = new FormData();
     formData.append('file', file);
+    formData.append('roomId', roomId);
     
     try {
       const response = await fetch('/api/upload', { 
@@ -781,22 +785,28 @@ export default function RoomPage() {
   // End call
 //const handleEndCall = useCallback(() => {
 const handleEndCall = useCallback(async () => {
-    if (roomId && userName) {
-      socket.emit('end-meeting', { roomId, endedBy: userName });
-       await fetch('/api/cleanup', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ roomId }),
-    });
-    }
+  if (roomId && userName) {
+    socket.emit('end-meeting', { roomId, endedBy: userName });
     
-    if (localStreamRef.current) {
-      localStreamRef.current.getTracks().forEach(track => track.stop());
+    // Add cleanup call here
+    try {
+      await fetch('/api/cleanup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ roomId }),
+      });
+    } catch (error) {
+      console.error('Cleanup failed:', error);
     }
-    
-    resetPeerConnection();
-    router.push('/');
-  }, [roomId, userName, resetPeerConnection, router]);
+  }
+  
+  if (localStreamRef.current) {
+    localStreamRef.current.getTracks().forEach(track => track.stop());
+  }
+  
+  resetPeerConnection();
+  router.push('/');
+}, [roomId, userName, resetPeerConnection, router]);
 
   // Prompt for user name
   useEffect(() => {
@@ -882,7 +892,7 @@ const handleEndCall = useCallback(async () => {
 
     console.log('Setting up socket listeners for room:', roomId);
 
-    const handlePeerLeft = () => {
+   const handlePeerLeft = async () => {
       console.log('Peer left');
       resetPeerConnection();
       setPeerJoined(false);
@@ -890,7 +900,31 @@ const handleEndCall = useCallback(async () => {
       if (remoteVideoRef.current) {
         remoteVideoRef.current.srcObject = null;
       }
+
+        if (roomId) {
+    try {
+      await fetch('/api/cleanup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ roomId }),
+      });
+      console.log('Cleanup completed after peer left');
+    } catch (error) {
+      console.error('Cleanup failed:', error);
+    }
+  }
+
+    resetPeerConnection();
+  setPeerJoined(false);
+  setPeerName('');
+  if (remoteVideoRef.current) {
+    remoteVideoRef.current.srcObject = null;
+  }
+
+      
     };
+
+
 
     const handleHostLeft = () => {
       showEndMeetingDialog('Host');
@@ -1041,6 +1075,49 @@ const handleEndCall = useCallback(async () => {
       fetchGiphyGifs();
     }
   }, [showGifPicker, fetchGiphyGifs]);
+
+  useEffect(() => {
+    const handleBeforeUnload = async () => {
+      if (roomId) {
+        // Use sendBeacon for reliable cleanup on page unload
+        const data = JSON.stringify({ roomId });
+        navigator.sendBeacon('/api/cleanup', data);
+      }
+    };
+
+    const handleUnload = async () => {
+      if (roomId) {
+        try {
+          await fetch('/api/cleanup', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ roomId }),
+          });
+        } catch (error) {
+          console.error('Cleanup on unload failed:', error);
+        }
+      }
+    };
+
+    // Add event listeners
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    window.addEventListener('unload', handleUnload);
+
+    // Cleanup function
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+      window.removeEventListener('unload', handleUnload);
+      
+      // Also trigger cleanup when component unmounts
+      if (roomId) {
+        fetch('/api/cleanup', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ roomId }),
+        }).catch(console.error);
+      }
+    };
+  }, [roomId]);
 
   // Show room error (invalid/expired room or room full)
   if (roomError) {

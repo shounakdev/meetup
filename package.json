@@ -9,6 +9,7 @@
     "server": "node server.js"
   },
   "dependencies": {
+    "cloudinary": "^2.7.0",
     "emoji-picker-react": "^4.13.2",
     "express": "^5.1.0",
     "formidable": "^3.5.4",
