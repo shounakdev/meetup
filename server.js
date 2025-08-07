@@ -1,4 +1,4 @@
-// server.js - DEBUG VERSION
+// server.js - FIXED VERSION with proper room name broadcasting
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
@@ -13,7 +13,7 @@ const io = new Server(server, {
   maxHttpBufferSize: 10 * 1024 * 1024,
 });
 
-// In-memory room storage: roomId -> { participants: Set, host: socketId, createdAt: timestamp }
+// In-memory room storage: roomId -> { participants: Set, host: socketId, createdAt: timestamp, roomName: string }
 const rooms = new Map();
 
 // Helper to cleanup empty rooms
@@ -32,7 +32,8 @@ function getOrCreateRoom(roomId) {
     rooms.set(roomId, {
       participants: new Set(),
       host: null,
-      createdAt: Date.now()
+      createdAt: Date.now(),
+      roomName: '' // Add roomName field
     });
   }
   return rooms.get(roomId);
@@ -46,6 +47,7 @@ function printAllRooms() {
   } else {
     for (const [roomId, room] of rooms.entries()) {
       console.log(`📊 Room ${roomId}:`);
+      console.log(`   - Name: "${room.roomName || 'Unnamed'}"`);
       console.log(`   - Participants: ${room.participants.size}/2`);
       console.log(`   - IDs: [${Array.from(room.participants).join(', ')}]`);
       console.log(`   - Host: ${room.host}`);
@@ -62,6 +64,12 @@ io.on('connection', socket => {
   // Store current room for this socket
   let currentRoom = null;
 
+  // Background sync between participants
+socket.on('background-sync', ({ roomId, backgroundUrl }) => {
+  console.log(`🖼️ Background sync by ${socket.id} in room ${roomId}: ${backgroundUrl}`);
+  socket.to(roomId).emit('background-sync', { backgroundUrl });
+});
+
   socket.on('join-room', roomId => {
     console.log(`\n🚪🚪🚪 JOIN ROOM REQUEST 🚪🚪🚪`);
     console.log(`Socket: ${socket.id}`);
@@ -74,12 +82,20 @@ io.on('connection', socket => {
     console.log(`   - Size: ${room.participants.size}`);
     console.log(`   - Participants: [${Array.from(room.participants).join(', ')}]`);
     console.log(`   - Host: ${room.host}`);
+    console.log(`   - Room Name: "${room.roomName || 'Unnamed'}"`);
     
     // Check if user is already in the room (reconnection case)
     if (room.participants.has(socket.id)) {
       console.log(`🔄 RECONNECTION: ${socket.id} is already in room ${roomId}`);
       currentRoom = roomId;
       socket.join(roomId);
+      
+      // Send existing room name to reconnecting user
+      if (room.roomName) {
+        console.log(`📛 Sending existing room name "${room.roomName}" to reconnecting user ${socket.id}`);
+        socket.emit('room-name', { roomName: room.roomName });
+      }
+      
       return;
     }
 
@@ -120,6 +136,12 @@ io.on('connection', socket => {
     if (!room.host) {
       room.host = socket.id;
       console.log(`👑 ${socket.id} is now HOST of room ${roomId}`);
+    }
+
+    // Send existing room name to new joiner if it exists
+    if (room.roomName) {
+      console.log(`📛 Sending existing room name "${room.roomName}" to new joiner ${socket.id}`);
+      socket.emit('room-name', { roomName: room.roomName });
     }
 
     console.log(`\n🎉 JOIN SUCCESS:`);
@@ -163,20 +185,18 @@ io.on('connection', socket => {
     if (callback) callback(isHost);
   });
 
-  // WebRTC Signaling Events - Fixed format to match frontend expectations
-  socket.on('offer', ({ offer, roomId }) => {
-    console.log(`📤 OFFER: ${socket.id} -> room ${roomId}`, offer ? 'valid' : 'NULL/INVALID');
+  // WebRTC Signaling Events
+  socket.on('offer', ({ offer, roomId, isScreenShare }) => {
+    console.log(`📤 OFFER: ${socket.id} -> room ${roomId}`, offer ? 'valid' : 'NULL/INVALID', isScreenShare ? '(SCREEN)' : '(CAMERA)');
     if (offer && offer.type && offer.sdp) {
-      socket.to(roomId).emit('offer', offer);  // Send just the offer, not wrapped
-    } else {
-      console.log(`❌ Invalid offer received:`, offer);
+      socket.to(roomId).emit('offer', { ...offer, isScreenShare });
     }
   });
 
   socket.on('answer', ({ answer, roomId }) => {
     console.log(`📤 ANSWER: ${socket.id} -> room ${roomId}`, answer ? 'valid' : 'NULL/INVALID');
     if (answer && answer.type && answer.sdp) {
-      socket.to(roomId).emit('answer', answer);  // Send just the answer, not wrapped
+      socket.to(roomId).emit('answer', answer);
     } else {
       console.log(`❌ Invalid answer received:`, answer);
     }
@@ -185,7 +205,7 @@ io.on('connection', socket => {
   socket.on('ice-candidate', ({ candidate, roomId }) => {
     console.log(`📤 ICE: ${socket.id} -> room ${roomId}`, candidate ? 'valid' : 'NULL/INVALID');
     if (candidate) {
-      socket.to(roomId).emit('ice-candidate', candidate);  // Send just the candidate, not wrapped
+      socket.to(roomId).emit('ice-candidate', candidate);
     } else {
       console.log(`❌ Invalid ICE candidate received:`, candidate);
     }
@@ -194,7 +214,6 @@ io.on('connection', socket => {
   // Name exchange
   socket.on('set-name', ({ roomId, name }) => {
     console.log(`👤 NAME: ${socket.id} set name "${name}" in room ${roomId}`);
-    //socket.to(roomId).emit('peer-name', { name, senderId: socket.id });
     socket.to(roomId).emit('peer-name', { name, senderId: socket.id });
   });
 
@@ -209,17 +228,44 @@ io.on('connection', socket => {
     });
   });
 
+  // FIXED: Room name handling - store in room and broadcast to ALL participants
+  socket.on('room-name', ({ roomId, roomName }) => {
+    console.log(`📛 ROOM NAME: ${socket.id} set room name "${roomName}" for room ${roomId}`);
+    
+    if (!rooms.has(roomId)) {
+      console.log(`❌ Room ${roomId} doesn't exist for room name`);
+      return;
+    }
+    
+    const room = rooms.get(roomId);
+    
+    // Only host can set room name
+    if (room.host !== socket.id) {
+      console.log(`❌ Non-host ${socket.id} tried to set room name (host is ${room.host})`);
+      return;
+    }
+    
+    // Store room name
+    room.roomName = roomName;
+    console.log(`📛 Room name stored: "${roomName}" for room ${roomId}`);
+    
+    // Broadcast to ALL participants in the room (including the host who set it)
+    io.to(roomId).emit('room-name', { roomName });
+    console.log(`📛 Room name "${roomName}" broadcasted to all in room ${roomId}`);
+    
+    printAllRooms();
+  });
 
-  // ── Screen-share signaling ───────────────────────────────────────────────
-socket.on('screen-share-started', (roomId) => {
-  console.log(`🔊 Screen share started by ${socket.id} in room ${roomId}`);
-  socket.to(roomId).emit('screen-share-started');
-});
-socket.on('screen-share-stopped', (roomId) => {
-  console.log(`🔊 Screen share stopped by ${socket.id} in room ${roomId}`);
-  socket.to(roomId).emit('screen-share-stopped');
-});
+  // Screen-share signaling
+  socket.on('screen-share-started', (roomId) => {
+    console.log(`🔊 Screen share started by ${socket.id} in room ${roomId}`);
+    socket.to(roomId).emit('screen-share-started');
+  });
 
+  socket.on('screen-share-stopped', (roomId) => {
+    console.log(`🔊 Screen share stopped by ${socket.id} in room ${roomId}`);
+    socket.to(roomId).emit('screen-share-stopped');
+  });
 
   // Handle meeting end
   socket.on('end-meeting', ({ roomId, endedBy }) => {
@@ -338,6 +384,7 @@ app.get('/health', (_, res) => {
       participants: room.participants.size,
       participantIds: Array.from(room.participants),
       host: room.host,
+      roomName: room.roomName || 'Unnamed',
       createdAt: new Date(room.createdAt).toISOString()
     };
   }
@@ -360,6 +407,7 @@ app.get('/rooms/:roomId', (req, res) => {
   
   res.json({
     roomId,
+    roomName: room.roomName || 'Unnamed',
     participantCount: room.participants.size,
     participants: Array.from(room.participants),
     host: room.host,
@@ -374,4 +422,3 @@ server.listen(PORT, () => {
   console.log(`📊 Health check: http://localhost:${PORT}/health`);
   console.log(`🔍 This is a DEBUG version with detailed logging`);
 });
-
