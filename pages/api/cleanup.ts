@@ -38,11 +38,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       details: result.deleted || {}
     });
     
-  } catch (error) {
-    if (error.message?.includes("Can't find") || error.http_code === 404) {
-      return res.status(200).json({ deleted: 0, message: 'No files to delete' });
-    }
-    
-    return res.status(500).json({ error: `Cleanup failed: ${error.message}` });
+  }  catch (error: any) {
+  if (error?.message?.includes("Can't find") || error?.http_code === 404) {
+    return res.status(200).json({ deleted: 0, message: 'No files to delete' });
   }
+  return res.status(500).json({ error: `Cleanup failed: ${error?.message ?? 'Unknown error'}` });
+}
 }
