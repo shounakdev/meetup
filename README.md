@@ -1,36 +1,38 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
-## Getting Started
+# MeetUp
 
-First, run the development server:
+Meetup is a browser-based video conferencing platform built with WebRTC, enabling peer-to-peer audio/video communication without additional plugins. The app uses Socket.IO for signaling and Next.js for the frontend.
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Features
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+- Room-based video calls – create or join unique meeting rooms.
+- High-quality audio/video streaming via WebRTC.
+- Live chat alongside video calls (supports text, emojis, images, and GIFs).
+- Peer-to-peer connection for low latency.
+- Screen sharing support (including full desktop + audio on supported browsers).
+- 
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
 
-## Learn More
+## Tech Stack
 
-To learn more about Next.js, take a look at the following resources:
+**Frontend:** Next.js, React, Tailwind CSS (if styled)
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+**Backend:** Node.js, Express, Socket.IO
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+**WebRTC APIs:** MediaDevices, RTCPeerConnection, DataChannels
 
-## Deploy on Vercel
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+
+## Working on
+
+- Video Recording
+- Download Message as a pdf 
+- Record Video individually 
+## Contributing
+
+Contributions are always welcome!
+
+Feel free to reach out at https://x.com/_shounakchandra in case you need anything
+
