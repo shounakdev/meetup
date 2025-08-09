@@ -1,22 +1,20 @@
 // utils/socket.ts
-import { io, Socket } from "socket.io-client";
+import { io, type Socket } from "socket.io-client";
 
 let socket: Socket;
 
-// only create the socket in the browser
 if (typeof window !== "undefined") {
   const URL =
-    process.env.NEXT_PUBLIC_SOCKET_URL || window.location.origin; // e.g. https://your-signal.onrender.com
+    process.env.NEXT_PUBLIC_SOCKET_URL ?? window.location.origin;
 
   socket = io(URL, {
-    transports: ["websocket"],             // skip long-polling on hosts that support WS
-    path: process.env.NEXT_PUBLIC_SOCKET_PATH || "/socket.io",
-    withCredentials: true,
+    path: process.env.NEXT_PUBLIC_SOCKET_PATH ?? "/socket.io",
+    transports: ["websocket", "polling"],
     autoConnect: true,
     reconnection: true,
     reconnectionAttempts: Infinity,
+    // withCredentials: false, // omit unless you enable credentials on the server
   });
 }
 
-// @ts-ignore - not used during SSR
 export default socket!;
