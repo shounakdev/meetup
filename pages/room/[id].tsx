@@ -198,7 +198,7 @@ export default function RoomPage() {
       setError(`Connection lost: ${reason}`);
     };
 
-    const handleConnectError = (error: any) => {
+    const handleConnectError = (error: unknown) => {
       console.error('Socket connection error:', error);
       setSocketConnected(false);
       setError('Failed to connect to server. Please check your internet connection.');
@@ -906,7 +906,8 @@ export default function RoomPage() {
       const response = await fetch(apiUrl);
       const { data } = await response.json();
       
-      setGifResults(data.map((gif: any) => gif.images.fixed_width.url));
+      type GiphyItem = { images: { fixed_width: { url: string } } };
+      setGifResults((data as GiphyItem[]).map(g => g.images.fixed_width.url));
     } catch (error) {
       console.error('Giphy error:', error);
       setGifResults([]);
@@ -2411,7 +2412,12 @@ export default function RoomPage() {
               fontWeight: '600',
               fontFamily: 'Inter, sans-serif'
             }}>
-              {screenSharingActive ? `🖥️ ${peerName || 'Peer'}'s Screen` : `👤 ${peerName || 'Peer'}`}
+             {screenSharingActive ? (
+                  <>🖥️ {peerName || 'Peer'}’s Screen</>
+                  ) : (
+                  <>👤 {peerName || 'Peer'}</>
+                  )}
+
             </div>
             <div 
               className="resize-handle"
@@ -2572,7 +2578,7 @@ export default function RoomPage() {
                           fontWeight: '600',
                           fontFamily: 'Inter, sans-serif'
                         }}>
-                          🖥️ {peerName || 'Peer'}'s Screen
+                          <>🖥️ {peerName || 'Peer'}’s Screen</>
                         </div>
                       </div>
                     </div>
@@ -2725,7 +2731,7 @@ export default function RoomPage() {
                       padding: '8px',
                       borderRadius: '50%',
                       transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-                      background: chatDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'
+                      //background: chatDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'
                     }}
                     title="Toggle dark mode"
                   >

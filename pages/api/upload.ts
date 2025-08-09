@@ -64,7 +64,8 @@ export default async function handler(
 
       try {
         fs.unlinkSync(file.filepath);
-      } catch (_cleanupError: unknown) {
+      } catch {
+
         // Silent cleanup failure - not critical
       }
 
@@ -72,7 +73,8 @@ export default async function handler(
     } catch (error: unknown) {
       try {
         fs.unlinkSync(file.filepath);
-      } catch (_cleanupError: unknown) {
+      } catch {
+
         // Silent cleanup failure
       }
 
