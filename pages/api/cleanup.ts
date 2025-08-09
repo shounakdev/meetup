@@ -20,7 +20,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     try {
       const body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
       roomId = body?.roomId;
-    } catch (error) {
+    } catch {
       return res.status(400).json({ error: 'Invalid request format' });
     }
   }
@@ -38,11 +38,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       details: result.deleted || {}
     });
     
-  } catch (error) {
-    if (error.message?.includes("Can't find") || error.http_code === 404) {
-      return res.status(200).json({ deleted: 0, message: 'No files to delete' });
-    }
-    
-    return res.status(500).json({ error: `Cleanup failed: ${error.message}` });
+  }   catch (err: unknown) {
+  const e = err as Partial<{ message: string; http_code: number }>;
+  if (e?.message?.includes("Can't find") || e?.http_code === 404) {
+    return res.status(200).json({ deleted: 0, message: 'No files to delete' });
   }
+  return res.status(500).json({ error: `Cleanup failed: ${e?.message ?? 'Unknown error'}` });
+}
 }

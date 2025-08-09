@@ -54,7 +54,7 @@ export default async function handler(
       return res.status(500).json({ error: 'File not found after upload' });
     }
 
-    try {
+        try {
       const result = await cloudinary.uploader.upload(file.filepath, {
         folder: `video-call-uploads/${roomId || 'default'}`,
         tags: [`room_${roomId || 'default'}`],
@@ -64,21 +64,26 @@ export default async function handler(
 
       try {
         fs.unlinkSync(file.filepath);
-      } catch (cleanupError) {
+      } catch {
+
         // Silent cleanup failure - not critical
       }
 
       return res.status(200).json({ url: result.secure_url });
-    } catch (error) {
+    } catch (error: unknown) {
       try {
         fs.unlinkSync(file.filepath);
-      } catch (cleanupError) {
+      } catch {
+
         // Silent cleanup failure
       }
-      
-      return res.status(500).json({ 
-        error: `Upload to cloud failed: ${error.message}` 
-      });
+
+      const msg =
+        error instanceof Error ? error.message :
+        typeof error === 'string' ? error :
+        'Unknown error';
+
+      return res.status(500).json({ error: `Upload to cloud failed: ${msg}` });
     }
   });
 }
