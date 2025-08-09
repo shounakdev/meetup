@@ -1,21 +1,22 @@
-// utils/socket.js
-import { io } from 'socket.io-client';
+// utils/socket.ts
+import { io, Socket } from "socket.io-client";
 
-const socket = io('http://localhost:4000', {
-  transports: ['websocket', 'polling'],
-  timeout: 20000,
-});
+let socket: Socket;
 
-socket.on('connect', () => {
-  console.log('[Socket] Connected:', socket.id);
-});
+// only create the socket in the browser
+if (typeof window !== "undefined") {
+  const URL =
+    process.env.NEXT_PUBLIC_SOCKET_URL || window.location.origin; // e.g. https://your-signal.onrender.com
 
-socket.on('disconnect', (reason) => {
-  console.log('[Socket] Disconnected:', reason);
-});
+  socket = io(URL, {
+    transports: ["websocket"],             // skip long-polling on hosts that support WS
+    path: process.env.NEXT_PUBLIC_SOCKET_PATH || "/socket.io",
+    withCredentials: true,
+    autoConnect: true,
+    reconnection: true,
+    reconnectionAttempts: Infinity,
+  });
+}
 
-socket.on('connect_error', (error) => {
-  console.error('[Socket] Connection error:', error);
-});
-
-export default socket;
+// @ts-ignore - not used during SSR
+export default socket!;
