@@ -1180,7 +1180,7 @@ export default function RoomPage() {
       
       promptBox.innerHTML = `
         <div style="font-size: 48px; margin-bottom: 20px;">👋</div>
-        <h2 style="color: #1e293b; margin-bottom: 20px; font-size: 24px; font-weight: 700;">Welcome to the Video Call</h2>
+        <h2 style="color: #1e293b; margin-bottom: 20px; font-size: 24px; font-weight: 700;">Welcome to the Jam Jiggle</h2>
         <p style="color: #64748b; margin-bottom: 30px; font-size: 16px;">Please enter your name to join the room</p>
         <input type="text" id="nameInput" placeholder="Enter your name..." style="
           width: 100%;
