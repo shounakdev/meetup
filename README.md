@@ -1,5 +1,5 @@
 
-# MeetUp
+# MeetUp(Deployed version is called JamJiggle)
 
 Meetup is a browser-based video conferencing platform built with WebRTC, enabling peer-to-peer audio/video communication without additional plugins. The app uses Socket.IO for signaling and Next.js for the frontend.
 
