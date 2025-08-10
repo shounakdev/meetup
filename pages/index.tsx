@@ -26,7 +26,7 @@ export default function Home() {
   return (
     <>
       <Head>
-        <title>Meetup - Video Calling Made Simple</title>
+        <title>Jam Jiggle</title>
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
         <link
@@ -318,7 +318,7 @@ export default function Home() {
 
       <div className="main-container">
         <div className="hero-section">
-          <h1 className="main-title">Meetup</h1>
+          <h1 className="main-title">Jam Jiggle</h1>
           <p className="subtitle">Video Call for 2 people</p>
         </div>
 
