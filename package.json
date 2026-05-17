@@ -7,7 +7,6 @@
     "build": "next build",
     "start": "next start",
     "server": "node server.js",
-    "test": "echo \"No tests configured yet\" && exit 0"
   },
   "dependencies": {
     "cloudinary": "^2.7.0",
