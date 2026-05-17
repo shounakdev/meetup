@@ -6,7 +6,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "server": "node server.js",
+    "server": "node server.js"
   },
   "dependencies": {
     "cloudinary": "^2.7.0",
