@@ -359,7 +359,7 @@ export default function Home() {
           </div>
 
           <div className="card-credit">
-            crafted by{' '}
+            Crafted by{' '}
             <a
               href="https://linktr.ee/_shounakchandra"
               target="_blank"
